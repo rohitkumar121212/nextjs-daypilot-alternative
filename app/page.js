@@ -24,11 +24,11 @@ export default function Home() {
     async function loadData() {
       try {
         const resourcesRequest = fetch(
-          'https://aperfectstay.ai/api/aps-pms/apts/?user=4789839916433408&start=2026-01-20'
+          'https://aperfectstay.ai/api/aps-pms/apts/?user=6552614495846400&start=2026-01-20'
         )
 
         const bookingsRequest = fetch(
-          'https://aperfectstay.ai/api/aps-pms/reservations/?user=4789839916433408&start=2026-01-20&end=2026-02-20'
+          'https://aperfectstay.ai/api/aps-pms/reservations/?user=6552614495846400&start=2026-01-20&end=2026-02-20'
         )
 
         const [resourcesRes, bookingsRes] = await Promise.all([
@@ -106,8 +106,8 @@ export default function Home() {
             bookings={validBookings}
             onBookingCreate={handleBookingCreate}
             onResourcesChange={setResources}
-            daysToShow={15}
-            cellWidth={100}
+            daysToShow={90}
+            cellWidth={120}
             rowHeight={60}
           />
         )}

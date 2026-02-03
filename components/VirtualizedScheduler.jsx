@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { MultiGrid } from 'react-virtualized'
+import 'react-virtualized/styles.css'
 import DateHeader from './DateHeader'
 import ResourceRow from './ResourceRow'
 import BookingModal from './BookingModal'
@@ -10,7 +12,7 @@ const VirtualizedScheduler = ({
   bookings = [],
   onBookingCreate,
   onResourcesChange,
-  daysToShow = 30,
+  daysToShow = 60, // Increased default to test horizontal scrolling
   cellWidth = 100,
   rowHeight = 60
 }) => {
@@ -338,15 +340,104 @@ const VirtualizedScheduler = ({
   }
 
   /* =========================
-     Vertical scroll sync (removed react-window dependency)
+     MultiGrid setup
   ========================= */
-  const syncVerticalScroll = useCallback((scrollData) => {
-    // Simplified without react-window
-  }, [])
-
-  const syncResourceScroll = useCallback((scrollData) => {
-    // Simplified without react-window  
-  }, [])
+  const multiGridRef = useRef(null)
+  const RESOURCE_COLUMN_WIDTH = 200
+  const HEADER_HEIGHT = 50
+  
+  // Virtualization settings for better performance
+  const OVERSCAN_COLUMN_COUNT = 5 // Render 5 extra columns outside viewport
+  const OVERSCAN_ROW_COUNT = 3    // Render 3 extra rows outside viewport
+  
+  const cellRenderer = ({ columnIndex, key, rowIndex, style }) => {
+    // Header row
+    if (rowIndex === 0) {
+      if (columnIndex === 0) {
+        return (
+          <div key={key} style={style} className="bg-gray-50 border-r border-b border-gray-200 flex items-center justify-center font-semibold">
+            Resources
+          </div>
+        )
+      }
+      const date = dates[columnIndex - 1]
+      return (
+        <div key={key} style={style}>
+          <DateHeader date={date} cellWidth={cellWidth} />
+        </div>
+      )
+    }
+    
+    // Data rows
+    const row = visibleRows[rowIndex - 1]
+    if (!row) return null
+    
+    // Resource column (sticky left)
+    if (columnIndex === 0) {
+      return (
+        <div
+          key={key}
+          style={style}
+          className={`border-r border-b border-gray-200 bg-white flex items-center px-2 ${
+            row.type === 'parent'
+              ? 'font-semibold bg-gray-50'
+              : 'pl-8 text-gray-700'
+          }`}
+        >
+          {row.type === 'parent' && (
+            <button
+              onClick={() => handleToggleExpand(row.id)}
+              className="mr-2 p-1 hover:bg-gray-200 rounded"
+            >
+              ▶
+            </button>
+          )}
+          <span className="truncate">{row.name}</span>
+        </div>
+      )
+    }
+    
+    // Timeline cells
+    const date = dates[columnIndex - 1]
+    return (
+      <div key={key} style={style} className="border-b border-gray-200 relative">
+        {/* Date Cell */}
+        <div 
+          className="w-full h-full border-r border-gray-100 hover:bg-blue-50 cursor-pointer flex items-center justify-center"
+          data-date={date}
+          data-resource-id={row.id}
+          onMouseDown={(e) => handleCellMouseDown(date, row.id, e)}
+          onMouseEnter={() => handleCellMouseEnter(date, row.id)}
+        >
+          {/* Show booking if it starts on this date */}
+          {bookings
+            .filter(b => b.resourceId === row.id && b.startDate === date)
+            .map(booking => {
+              const startIdx = dates.indexOf(booking.startDate)
+              const endIdx = dates.indexOf(booking.endDate)
+              const duration = endIdx - startIdx // Exclude end date
+              const width = duration * cellWidth
+              
+              return (
+                <div
+                  key={booking.id}
+                  className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded cursor-pointer z-10"
+                  style={{ 
+                    width: `${width - 2}px`,
+                    height: '50px'
+                  }}
+                  onClick={() => handleBookingClick(booking)}
+                  onMouseDown={(e) => handleBookingDragStart(booking, e)}
+                >
+                  {booking.name}
+                </div>
+              )
+            })
+          }
+        </div>
+      </div>
+    )
+  }
 
   const containerHeight = 500
 
@@ -365,80 +456,27 @@ const VirtualizedScheduler = ({
         }}
       />
 
-      {/* ================= HEADER ================= */}
-      <div className="flex border-b bg-gray-50 sticky top-0 z-30">
-        <div className="w-48 min-w-48 border-r flex items-center justify-center font-semibold sticky left-0 z-50 bg-gray-50">
-          Resources
-        </div>
-
-        <div
-          ref={headerScrollRef}
-          className="flex overflow-x-auto hide-scrollbar"
-          onScroll={e => syncScroll(e.target, timelineScrollRef.current)}
-        >
-          <div className="flex">
-            {dates.map(date => (
-              <DateHeader key={date} date={date} cellWidth={cellWidth} />
-            ))}
-          </div>
-        </div>
-      </div>
-
       {/* ================= BODY ================= */}
-      <div className="flex-1 flex" style={{ height: containerHeight }}>
-        {/* Single Container */}
-        <div className="flex-1 relative">
-          <div
-            ref={timelineScrollRef}
-            className="absolute inset-0 overflow-auto"
-            onScroll={e => syncScroll(e.target, headerScrollRef.current)}
-          >
-            <div style={{ width: 192 + dates.length * cellWidth }}>
-              <div className="divide-y divide-gray-200">
-                {visibleRows.map((row, index) => (
-                  <div key={`${row.type}-${row.id}`} className="flex" style={{ height: rowHeight }}>
-                    {/* Resource Column */}
-                    <div className="w-48 min-w-48 border-r border-gray-200 bg-white z-40">
-                      <div
-                        className={`h-full border-b border-gray-200 bg-white flex items-center px-2 ${
-                          row.type === 'parent'
-                            ? 'font-semibold bg-gray-50'
-                            : 'pl-8 text-gray-700'
-                        }`}
-                      >
-                        {row.type === 'parent' && (
-                          <button
-                            onClick={() => handleToggleExpand(row.id)}
-                            className="mr-2 p-1 hover:bg-gray-200 rounded"
-                          >
-                            ▶
-                          </button>
-                        )}
-                        <span className="truncate">{row.name}</span>
-                      </div>
-                    </div>
-                    
-                    {/* Timeline Row */}
-                    <div className="flex-1">
-                      <ResourceRow
-                        resource={row}
-                        dates={dates}
-                        bookings={bookings}
-                        selection={selection}
-                        dragState={dragState}
-                        onCellMouseDown={handleCellMouseDown}
-                        onCellMouseEnter={handleCellMouseEnter}
-                        onBookingClick={handleBookingClick}
-                        onBookingDragStart={handleBookingDragStart}
-                        cellWidth={cellWidth}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="flex-1" style={{ height: containerHeight }}>
+        <MultiGrid
+          ref={multiGridRef}
+          cellRenderer={cellRenderer}
+          columnCount={dates.length + 1}
+          rowCount={visibleRows.length + 1}
+          columnWidth={({ index }) => index === 0 ? RESOURCE_COLUMN_WIDTH : cellWidth}
+          rowHeight={({ index }) => index === 0 ? HEADER_HEIGHT : rowHeight}
+          fixedColumnCount={1}
+          fixedRowCount={1}
+          width={window?.innerWidth || 1200}
+          height={containerHeight}
+          overscanColumnCount={OVERSCAN_COLUMN_COUNT}
+          overscanRowCount={OVERSCAN_ROW_COUNT}
+          styleBottomLeftGrid={{ outline: 'none' }}
+          styleBottomRightGrid={{ outline: 'none' }}
+          styleTopLeftGrid={{ outline: 'none' }}
+          styleTopRightGrid={{ outline: 'none' }}
+          className="scheduler-grid"
+        />
       </div>
 
       {/* ================= MODAL ================= */}
@@ -456,348 +494,167 @@ const VirtualizedScheduler = ({
 
 export default VirtualizedScheduler
 
+// 'use client';
+// import { useEffect, useState, useMemo } from 'react';
+// import dayjs from 'dayjs';
+// import VirtualScheduler from './VirtualScheduler/VirtualScheduler';
+// import FilterContainer from './Filter/FilterContainer';
 
+// const ReservationChart = ()=>{
+//   const [resources, setResources] = useState([])
+//   const [bookings, setBookings] = useState([])
+//   const [searchTerm, setSearchTerm] = useState('')
+//   const [bookingIdFilter, setBookingIdFilter] = useState('')
+//   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'))
+//   const [daysToShow, setDaysToShow] = useState(30)
 
-// import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-// import { FixedSizeList } from 'react-window'
-// import DateHeader from './DateHeader'
-// import ResourceRow from './ResourceRow'
-// import BookingModal from './BookingModal'
-// import { generateDateRange, getDateIndex } from '../utils/dateUtils'
+//   const [resourcesLoaded, setResourcesLoaded] = useState(false)
+//   const [bookingsLoaded, setBookingsLoaded] = useState(false)
 
-// /**
-//  * VirtualizedScheduler - Using react-window for battle-tested virtualization
-//  */
-// const VirtualizedScheduler = ({
-//   resources = [],
-//   bookings = [],
-//   onBookingCreate,
-//   onResourcesChange,
-//   daysToShow = 30,
-//   cellWidth = 100,
-//   rowHeight = 60
-// }) => {
-//   const dates = useMemo(() => generateDateRange(daysToShow), [daysToShow])
-  
-//   // Selection state
-//   const [selection, setSelection] = useState(null)
-//   const [isSelecting, setIsSelecting] = useState(false)
-//   const [modalOpen, setModalOpen] = useState(false)
-  
-//   // Track mouse state
-//   const mouseDownRef = useRef(false)
-//   const startDateRef = useRef(null)
-//   const startResourceIdRef = useRef(null)
-  
-//   // Refs for scroll synchronization
-//   const headerScrollRef = useRef(null)
-//   const timelineScrollRef = useRef(null)
-//   const resourceListRef = useRef(null)
-//   const timelineListRef = useRef(null)
-//   const isScrollingRef = useRef(false)
-  
-//   // Normalize hierarchical resources into flat visibleRows array
-//   const visibleRows = useMemo(() => {
-//     return resources.flatMap(parent => {
-//       const parentRow = {
-//         ...parent,
-//         type: 'parent',
-//         isParent: true
-//       }
-      
-//       if (!parent.expanded) {
-//         return [parentRow]
-//       }
-      
-//       const childRows = (parent.children || []).map(child => ({
-//         ...child,
-//         parentId: parent.id,
-//         parentName: parent.name,
-//         type: 'child',
-//         isParent: false
-//       }))
-      
-//       return [parentRow, ...childRows]
-//     })
-//   }, [resources])
-  
-//   // Handle mousedown on a date cell
-//   const handleCellMouseDown = useCallback((date, resourceId, e) => {
-//     e.preventDefault()
-//     mouseDownRef.current = true
-//     startDateRef.current = date
-//     startResourceIdRef.current = resourceId
+//   /* =========================
+//      Filter resources by search term and booking ID
+//   ========================= */
+//   const filteredResources = useMemo(() => {
+//     let resourcesResult = resources;
     
-//     setIsSelecting(true)
-//     setSelection({
-//       resourceId,
-//       startDate: date,
-//       endDate: date
-//     })
-//   }, [])
-  
-//   // Handle mouseenter on a date cell
-//   const handleCellMouseEnter = useCallback((date, resourceId, e) => {
-//     if (!mouseDownRef.current || !isSelecting) return
-//     if (resourceId !== startResourceIdRef.current) return
+//     // Filter by booking ID first - show only apartments that have the booking
+//     if (bookingIdFilter.trim()) {
+//       const matchingBookings = bookings.filter(booking => 
+//         booking.booking_id?.toString().includes(bookingIdFilter) ||
+//         booking.id?.toString().includes(bookingIdFilter)
+//       );
+      
+//       const matchingApartmentIds = new Set(matchingBookings.map(booking => booking.resourceId));
+      
+//       resourcesResult = resources.map(parent => {
+//         const matchingChildren = (parent.children || []).filter(child => 
+//           matchingApartmentIds.has(child.id)
+//         );
+        
+//         if (matchingChildren.length > 0) {
+//           return { ...parent, children: matchingChildren };
+//         }
+        
+//         return null;
+//       }).filter(Boolean);
+//     }
     
-//     setSelection(prev => {
-//       if (!prev) return null
-//       return {
-//         ...prev,
-//         endDate: date
-//       }
-//     })
-//   }, [isSelecting])
-  
-//   // Handle mouseup
+//     // Then filter by search term
+//     if (searchTerm.trim()) {
+//       resourcesResult = resourcesResult.map(parent => {
+//         const parentMatches = parent.name.toLowerCase().includes(searchTerm.toLowerCase());
+//         const matchingChildren = (parent.children || []).filter(child => 
+//           child.name.toLowerCase().includes(searchTerm.toLowerCase())
+//         );
+        
+//         if (parentMatches) {
+//           return parent; // Show all children if parent matches
+//         } else if (matchingChildren.length > 0) {
+//           return { ...parent, children: matchingChildren }; // Show only matching children
+//         }
+        
+//         return null; // Hide this parent entirely
+//       }).filter(Boolean);
+//     }
+    
+//     return resourcesResult;
+//   }, [resources, searchTerm, bookingIdFilter, bookings]);
+
+//   /* =========================
+//      Create booking (local)
+//   ========================= */
+//   const handleBookingCreate = (bookingData) => {
+//     const newBooking = {
+//       id: bookings.length + 1,
+//       ...bookingData
+//     }
+//     setBookings(prev => [...prev, newBooking])
+//   }
+
+//   /* =========================
+//      Parallel data fetching
+//   ========================= */
 //   useEffect(() => {
-//     const handleMouseUp = (e) => {
-//       if (mouseDownRef.current && isSelecting && selection) {
-//         mouseDownRef.current = false
-//         setIsSelecting(false)
-        
-//         const startIndex = getDateIndex(selection.startDate, dates)
-//         const endIndex = getDateIndex(selection.endDate, dates)
-        
-//         const finalStartDate = startIndex <= endIndex ? selection.startDate : selection.endDate
-//         const finalEndDate = startIndex <= endIndex ? selection.endDate : selection.startDate
-        
-//         setSelection({
-//           ...selection,
-//           startDate: finalStartDate,
-//           endDate: finalEndDate
-//         })
-        
-//         setTimeout(() => {
-//           setModalOpen(true)
-//         }, 100)
-//       }
-//     }
-    
-//     window.addEventListener('mouseup', handleMouseUp)
-//     return () => window.removeEventListener('mouseup', handleMouseUp)
-//   }, [isSelecting, selection, dates])
-  
-//   // Handle modal close
-//   const handleModalClose = useCallback(() => {
-//     setModalOpen(false)
-//     setSelection(null)
-//     mouseDownRef.current = false
-//     setIsSelecting(false)
-//   }, [])
-  
-//   // Handle booking confirmation
-//   const handleBookingConfirm = useCallback((bookingData) => {
-//     if (onBookingCreate) {
-//       onBookingCreate(bookingData)
-//     }
-//     handleModalClose()
-//   }, [onBookingCreate, handleModalClose])
-  
-//   // Handle parent expand/collapse toggle
-//   const handleToggleExpand = useCallback((parentId) => {
-//     const updatedResources = resources.map(parent => {
-//       if (parent.id === parentId) {
-//         return { ...parent, expanded: !parent.expanded }
-//       }
-//       return parent
-//     })
-    
-//     if (onResourcesChange) {
-//       onResourcesChange(updatedResources)
-//     }
-//   }, [resources, onResourcesChange])
-  
-//   // Get selected resource
-//   const selectedResource = useMemo(() => {
-//     if (!selection) return null
-    
-//     const visibleRow = visibleRows.find(r => r.id === selection.resourceId)
-//     if (visibleRow) return visibleRow
-    
-//     for (const parent of resources) {
-//       if (parent.id === selection.resourceId) return parent
-//       const child = (parent.children || []).find(c => c.id === selection.resourceId)
-//       if (child) return child
-//     }
-    
-//     return null
-//   }, [selection, visibleRows, resources])
-  
-//   // Container height for consistent sizing
-//   const containerHeight = 500
-  
-//   // Sync horizontal scrolling
-//   const handleHeaderScroll = useCallback((e) => {
-//     if (isScrollingRef.current) return
-//     isScrollingRef.current = true
-//     if (timelineScrollRef.current) {
-//       timelineScrollRef.current.scrollLeft = e.target.scrollLeft
-//     }
-//     requestAnimationFrame(() => {
-//       isScrollingRef.current = false
-//     })
-//   }, [])
-  
-//   const handleTimelineScroll = useCallback((e) => {
-//     if (isScrollingRef.current) return
-//     isScrollingRef.current = true
-//     if (headerScrollRef.current) {
-//       headerScrollRef.current.scrollLeft = e.target.scrollLeft
-//     }
-//     requestAnimationFrame(() => {
-//       isScrollingRef.current = false
-//     })
-//   }, [])
-  
-//   // Sync vertical scrolling between the two lists
-//   const handleResourceScroll = useCallback(({ scrollTop }) => {
-//     if (isScrollingRef.current) return
-//     isScrollingRef.current = true
-//     if (timelineListRef.current) {
-//       timelineListRef.current.scrollTo(scrollTop)
-//     }
-//     setTimeout(() => {
-//       isScrollingRef.current = false
-//     }, 0)
-//   }, [])
-  
-//   const handleTimelineListScroll = useCallback(({ scrollTop }) => {
-//     if (isScrollingRef.current) return
-//     isScrollingRef.current = true
-//     if (resourceListRef.current) {
-//       resourceListRef.current.scrollTo(scrollTop)
-//     }
-//     setTimeout(() => {
-//       isScrollingRef.current = false
-//     }, 0)
-//   }, [])
+//     let cancelled = false
 
-//   return (
-//     <div className="w-full h-full flex flex-col bg-white select-none">
-//       {/* Header Row */}
-//       <div className="flex border-b border-gray-300 bg-gray-50 sticky top-0 z-30 shadow-sm">
-//         <div className="w-48 min-w-48 border-r border-gray-200 bg-gray-50 sticky left-0 z-40 flex items-center justify-center font-semibold text-gray-700">
-//           Resources
-//         </div>
+//     async function loadData() {
+//       try {
+//         const endDate = dayjs(startDate).add(daysToShow, 'day').format('YYYY-MM-DD')
         
-//         <div 
-//           ref={headerScrollRef}
-//           className="flex overflow-x-auto overflow-y-hidden hide-scrollbar"
-//           onScroll={handleHeaderScroll}
-//         >
-//           <div className="flex">
-//             {dates.map(date => (
-//               <DateHeader
-//                 key={date}
-//                 date={date}
-//                 cellWidth={cellWidth}
-//               />
-//             ))}
-//           </div>
-//         </div>
-//       </div>
-      
-//       {/* Virtual Body Container */}
-//       <div className="flex-1 flex" style={{ height: containerHeight }}>
-//         {/* Resource Column */}
-//         <div className="w-48 min-w-48 border-r border-gray-200 bg-white">
-//           <FixedSizeList
-//             ref={resourceListRef}
-//             height={containerHeight}
-//             itemCount={visibleRows.length}
-//             itemSize={rowHeight}
-//             width={192}
-//             onScroll={handleResourceScroll}
-//           >
-//             {({ index, style }) => {
-//               const row = visibleRows[index]
-//               return (
-//                 <div
-//                   style={style}
-//                   className={`border-b border-gray-200 bg-white flex items-center px-2 font-medium hover:bg-gray-50 ${
-//                     row.type === 'parent' 
-//                       ? 'font-semibold bg-gray-50' 
-//                       : 'pl-8 text-gray-700'
-//                   }`}
-//                 >
-//                   {row.type === 'parent' && (
-//                     <button
-//                       onClick={(e) => {
-//                         e.stopPropagation()
-//                         handleToggleExpand(row.id)
-//                       }}
-//                       className="mr-2 p-1 hover:bg-gray-200 rounded flex-shrink-0"
-//                     >
-//                       <svg
-//                         className={`w-4 h-4 text-gray-600 transform transition-transform ${
-//                           row.expanded ? 'rotate-90' : ''
-//                         }`}
-//                         fill="none"
-//                         stroke="currentColor"
-//                         viewBox="0 0 24 24"
-//                       >
-//                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-//                       </svg>
-//                     </button>
-//                   )}
-//                   {row.type === 'child' && <span className="w-6 flex-shrink-0" />}
-//                   <span className="flex-1 truncate">{row.name}</span>
-//                 </div>
-//               )
-//             }}
-//           </FixedSizeList>
-//         </div>
-        
-//         {/* Timeline */}
-//         <div className="flex-1 relative">
-//           <div 
-//             ref={timelineScrollRef}
-//             className="absolute inset-0 overflow-x-auto hide-scrollbar"
-//             onScroll={handleTimelineScroll}
-//           >
-//             <div style={{ width: dates.length * cellWidth, height: containerHeight }}>
-//               <FixedSizeList
-//                 ref={timelineListRef}
-//                 height={containerHeight}
-//                 itemCount={visibleRows.length}
-//                 itemSize={rowHeight}
-//                 width={dates.length * cellWidth}
-//                 onScroll={handleTimelineListScroll}
-//               >
-//                 {({ index, style }) => {
-//                   const row = visibleRows[index]
-//                   return (
-//                     <div style={style}>
-//                       <ResourceRow
-//                         resource={row}
-//                         dates={dates}
-//                         bookings={bookings}
-//                         selection={selection}
-//                         onCellMouseDown={handleCellMouseDown}
-//                         onCellMouseEnter={handleCellMouseEnter}
-//                         cellWidth={cellWidth}
-//                       />
-//                     </div>
-//                   )
-//                 }}
-//               </FixedSizeList>
+//         const resourcesRequest = fetch(
+//           `https://aperfectstay.ai/api/aps-pms/apts/?user=6552614495846400&start=${startDate}`
+//         )
+
+//         const bookingsRequest = fetch(
+//           `https://aperfectstay.ai/api/aps-pms/reservations/?user=6552614495846400&start=${startDate}&end=${endDate}`
+//         )
+
+//         // 🚀 parallel execution
+//         const [resourcesRes, bookingsRes] = await Promise.all([
+//           resourcesRequest,
+//           bookingsRequest
+//         ])
+
+//         const resourcesJson = await resourcesRes.json()
+//         const bookingsJson = await bookingsRes.json()
+
+//         if (cancelled) return
+
+//         const normalizedBookingData =
+//            bookingsJson.data.reservations?.map(parent => ({
+//             ...parent,
+//             startDate: dayjs(parent.start).format('YYYY-MM-DD'),
+//             endDate: dayjs(parent.end).format('YYYY-MM-DD'),
+//             name: 'Room Booking',
+//             notes: 'Sample booking for Room-1',
+//             resourceId: parent?.booking_details?.apartment_id
+//           })) || []
+          
+//         setResources(resourcesJson?.data?.apt_build_details || [])
+//         setResourcesLoaded(true)
+
+//         setBookings(normalizedBookingData)
+//         setBookingsLoaded(true)
+//       } catch (err) {
+//         console.error('Failed to load scheduler data', err)
+//       }
+//     }
+
+//     loadData()
+
+//     return () => {
+//       cancelled = true
+//     }
+//   }, [startDate, daysToShow])
+//     return (
+//         <div className="flex-1 overflow-hidden flex flex-col">
+//             <div className="flex-1 border-b-2 border-gray-300">
+//             <div className="bg-blue-50 px-4 py-2 border-b border-gray-200">
+//                 <h2 className="text-lg font-semibold text-blue-800">SimpleVirtualScheduler (Custom Implementation)</h2>
+//                 <p className="text-sm text-blue-600">Manual virtualization without external dependencies</p>
 //             </div>
-//           </div>
-//         </div>
-//       </div>
-      
-//       {/* Booking Modal */}
-//       <BookingModal
-//         isOpen={modalOpen}
-//         selection={selection}
-//         resource={selectedResource}
-//         onClose={handleModalClose}
-//         onConfirm={handleBookingConfirm}
-//       />
-//     </div>
-//   )
+//             <FilterContainer 
+//               onSearchChange={setSearchTerm}
+//               onBookingIdChange={setBookingIdFilter}
+//               onDateChange={setStartDate}
+//               onDaysChange={setDaysToShow}
+//               bookings={bookings}
+//             />
+//             <div className="h-[82vh]">
+//                 <VirtualScheduler
+//                 resources={filteredResources}
+//                 bookings={bookings}
+//                 onBookingCreate={handleBookingCreate}
+//                 onResourcesChange={setResources}
+//                 startDate={startDate}
+//                 daysToShow={daysToShow}
+//                 cellWidth={100}
+//                 rowHeight={60}
+//                 />
+//             </div>
+//             </div> 
+//          </div>
+//     );
 // }
 
-// export default VirtualizedScheduler
+// export default ReservationChart;

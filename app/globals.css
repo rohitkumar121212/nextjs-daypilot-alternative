@@ -24,3 +24,11 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+/* React Virtualized Grid Styles */
+.scheduler-grid .ReactVirtualized__Grid {
+  outline: none !important;
+}
+
+.scheduler-grid .ReactVirtualized__Grid__innerScrollContainer {
+  overflow: visible !important;
+}
